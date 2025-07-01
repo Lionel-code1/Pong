@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pong mit Power-Ups & KI-Auswahl</title>
+  <style>
+    body {
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+      font-family: Arial, sans-serif;
+      background: #2d2d2d;
+      color: rgb(255, 255, 255);
+    }
+    canvas {
+      border: 2px solid rgb(255, 255, 255);
+      background-color: rgb(247, 0, 255);
+    }
+    #legend {
+      width: 299px;
+      padding: 10px;
+      background: #222;
+      border: 2px solid white;
+      font-size: 16px;
+    }
+    .powerup-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .color-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+  #reloadButton {
+  background-color: #cb00f3; /* Grün */
+  border: none;
+  color: rgb(255, 255, 255);
+  padding: 3px 15px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+#reloadButton:hover {
+  background-color: #3e8e41; /* Dunkleres Grün */
+}
+
+  </style>
+</head>
+<body>
+  <canvas id="ca" width="720" height="480"></canvas>
+ 
+  <div>
+    <div id="legend">
+
+      <h3>Power-Ups</h3>
+      <div class="powerup-item"><div class="color-dot" style="background: lime;"></div>Speed Boost🔥</div>
+      <div class="powerup-item"><div class="color-dot" style="background: cyan;"></div>Slow Ball</div>
+      <div class="powerup-item"><div class="color-dot" style="background: magenta;"></div>Mega Paddle</div>
+      <div class="powerup-item"><div class="color-dot" style="background: yellow;"></div>Fast Ball</div>
+      <div class="powerup-item"><div class="color-dot" style="background: purple;"></div>Teleport Paddle</div>
+      <div class="powerup-item"><div class="color-dot" style="background: red;"></div>Ball Split</div>
+      <div class="powerup-item"><div class="color-dot" style="background: orange;"></div>Reverse Controls</div>
+      <div class="powerup-item"><div class="color-dot" style="background: blue;"></div>Invisible Ball👻</div>
+      <div class="powerup-item"><div class="color-dot" style="background: brown;"></div>Shrink Paddle</div>
+      <div class="powerup-item"><div class="color-dot" style="background: blue;"></div>Curve Ball</div>
+      <div class="powerup-item"><div class="color-dot" style="background: crimson;"></div>Exploding Ball💣</div>
+      
+      <p style="margin-top:20px;">Highscore: <span id="highscoreText"></span></p>
+               <iframe style="border-radius:12px" 
+        src="https://open.spotify.com/embed/playlist/37i9dQZF1DWWY64wDtewQt?utm_source=generator" 
+        width="100%" height="90" frameBorder="0" allowfullscreen="" 
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy">
+</iframe>
+    <button onclick="reloadPage()" id="reloadButton">Restart</button>
+</div>
+      <br>
+     
+
+
+      </div>
+  </div>
+
+<script>
+const ca = document.getElementById('ca');
+const ctx = ca.getContext('2d');
+
+let p1 = 80, p2 = 200;
+let key = {};
+let score = 0;
+let highscore = parseInt(localStorage.getItem("pongHighscore")) || 0;
+document.getElementById("highscoreText").textContent = highscore;
+
+let balls = [{ x: 360, y: 240, speedX: 3, speedY: 0, curve: false, curveAngle: 0 }];
+let paddleSpeedP1 = 8;
+let paddleSpeedP2 = 8;
+let paddleHeightP1 = 80;
+let paddleHeightP2 = 80;
+let powerUp = null;
+let reverseControls = false;
+let invisibleBallActive = false;
+let shrinkingPlayer = null; // 1 or 2 if shrinking paddle active
+let explodingBallActive = false;
+
+let gamePaused = true;
+let gameStarted = false;
+let useAI = null; // null=auswahl, true=KI, false=2 Spieler
+
+document.addEventListener('keydown', e => {
+  key[e.keyCode] = true;
+
+  if (useAI === null) {
+    if (e.key.toLowerCase() === 'k') {
+      useAI = true;
+      gameStarted = true;
+      gamePaused = false;
+    } else if (e.key.toLowerCase() === 'p') {
+      useAI = false;
+      gameStarted = true;
+      gamePaused = false;
+    }
+  } else {
+    if (e.key === ' ') {
+      gamePaused = !gamePaused;
+    }
+  }
+});
+
+document.addEventListener('keyup', e => key[e.keyCode] = false);
+
+const powerUpTypes = [
+
+  { name: 'Speed Boost', effect: 'speedBoost', duration: 5000, color: 'lime' },
+  { name: 'Slow Ball', effect: 'slowBall', duration: 5000, color: 'cyan' },
+  { name: 'Mega Paddle', effect: 'megaPaddle', duration: 5000, color: 'magenta' },
+  { name: 'Fast Ball', effect: 'fastBall', duration: 5000, color: 'yellow' },
+  { name: 'Teleport Paddle', effect: 'teleportPaddle', duration: 5000, color: 'purple' },
+  { name: 'Ball Split', effect: 'ballSplit', duration: 5000, color: 'red' },
+  { name: 'Reverse Controls', effect: 'reverseControls', duration: 5000, color: 'orange' },
+  { name: 'Invisible Ball', effect: 'invisibleBall', duration: 3000, color: 'blue' },
+  { name: 'Shrink Paddle', effect: 'shrinkPaddle', duration: 5000, color: 'brown' },
+  { name: 'Curve Ball', effect: 'curveBall', duration: 5000, color: 'blue' }, 
+  { name: 'Exploding Ball', effect: 'explodingBall', duration: 5000, color: 'crimson' }
+];
+
+
+
+function playTone(freq, duration = 0.1) {
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'square';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+draw();
+setInterval(loop, 1000 / 60);
+
+function draw() {
+  ctx.fillStyle = 'Purple';
+  ctx.fillRect(0, 0, 720, 480);
+
+  ctx.fillStyle = getPaddleColor(1);
+  ctx.fillRect(10, p1, 10, paddleHeightP1);
+
+  ctx.fillStyle = getPaddleColor(2);
+  ctx.fillRect(700, p2, 10, paddleHeightP2);
+
+  ctx.fillStyle = invisibleBallActive ? 'rgba(255,255,255,0)' : 'white'; // Unsichtbarer Ball
+  balls.forEach(ball => {
+    if (!invisibleBallActive) {
+      ctx.fillRect(ball.x, ball.y, 10, 10);
+    }
+  });
+
+  // PowerUp anzeigen, wenn nicht aktiv
+  if (powerUp && !powerUp.activeTimer) {
+    ctx.fillStyle = powerUp.color;
+    ctx.beginPath();
+    ctx.arc(powerUp.x, powerUp.y, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'black';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(powerUp.name[0], powerUp.x, powerUp.y + 5);
+  }
+ 
+
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 56px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(score, 360, 70);
+
+  if (!gameStarted) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, 720, 480);
+    ctx.fillStyle = 'white';
+    ctx.font = '28px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Pong mit Power-Ups', 360, 150);
+    ctx.font = '20px Arial';
+    ctx.fillText('Drücke K für KI-Gegner', 360, 220);
+    ctx.fillText('Drücke P für 2 Spieler', 360, 260);
+  } else if (gamePaused) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, 720, 480);
+    ctx.fillStyle = 'white';
+    ctx.font = '32px Arial';
+    ctx.fillText('PAUSIERT (Leertaste zum Fortsetzen)', 360, 240);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+function loop() {
+  if (gamePaused || !gameStarted) return;
+ 
+
+  // Spieler 1 Bewegung (W/S) oder umgekehrt bei "Reverse Controls"
+  if (reverseControls) {
+    if (key[87]) p1 += paddleSpeedP1;
+    if (key[83]) p1 -= paddleSpeedP1;
+  } else {
+    if (key[87]) p1 -= paddleSpeedP1;
+    if (key[83]) p1 += paddleSpeedP1;
+  }
+  p1 = Math.max(0, Math.min(400, p1));
+
+  // KI-Logik
+  if (useAI) {
+    if (balls[0].y < p2 + paddleHeightP2 / 2) p2 -= paddleSpeedP2;
+    if (balls[0].y > p2 + paddleHeightP2 / 2) p2 += paddleSpeedP2;
+  } else {
+    if (reverseControls) {
+      if (key[38]) p2 += paddleSpeedP2;
+      if (key[40]) p2 -= paddleSpeedP2;
+    } else {
+      if (key[38]) p2 -= paddleSpeedP2;
+      if (key[40]) p2 += paddleSpeedP2;
+    }
+  }
+  p2 = Math.max(0, Math.min(400, p2));
+
+  balls.forEach(ball => {
+    // Curve Ball Bewegung
+    if (ball.curve) {
+      ball.curveAngle += 0.15;
+      ball.y += Math.sin(ball.curveAngle) * 2;
+    }
+
+    ball.x += ball.speedX;
+    ball.y += ball.speedY;
+
+   // Ball trifft Paddle von Spieler 1
+if (ball.x < 20 && ball.y > p1 && ball.y < p1 + paddleHeightP1 && ball.speedX < 0) {
+  ball.speedX = -ball.speedX * 1.09;
+  ball.speedY = (ball.y - p1 - paddleHeightP1 / 2) * 0.1;
+  score++;
+  updateScore();
+  playTone(440);
+
+  if (explodingBallActive) {
+    explodeBall(ball);
+    explodingBallActive = false; // nur einmal auslösen
+  }
+}
+
+// Ball trifft Paddle von Spieler 2
+if (ball.x > 690 && ball.y > p2 && ball.y < p2 + paddleHeightP2 && ball.speedX > 0) {
+  ball.speedX = -ball.speedX * 1.0;
+  ball.speedY = (ball.y - p2 - paddleHeightP2 / 2) * 0.1;
+  score++;
+  updateScore();
+  playTone(660);
+
+  if (explodingBallActive) {
+    explodeBall(ball);
+    explodingBallActive = false; // nur einmal auslösen
+  }
+}
+
+    if (ball.y < 0 || ball.y > 470) {
+      ball.speedY = -ball.speedY;
+      playTone(880);
+    }
+
+    if (ball.x < 0 || ball.x > 720) {
+      balls = balls.filter(b => b !== ball);
+    }
+  });
+
+  // PowerUp Spawn
+  if (!powerUp && Math.random() < 0.01) spawnPowerUp();
+
+  // PowerUp Aktivierung prüfen
+  if (powerUp) {
+    balls.forEach(ball => {
+      if (!powerUp.activeTimer && Math.abs(ball.x - powerUp.x) < 15 && Math.abs(ball.y - powerUp.y) < 15) {
+        activatePowerUp(powerUp.effect);
+        powerUp.activeTimer = Date.now();
+        powerUp.x = -100; // PowerUp weg vom Spielfeld
+        powerUp.y = -100;
+      }
+    });
+
+    // PowerUp Dauer
+    if (powerUp.activeTimer && Date.now() - powerUp.activeTimer > powerUp.duration) {
+      deactivatePowerUp(powerUp.effect);
+      powerUp = null;
+    }
+  }
+
+  // Paddle Schrumpfen rücksetzen nach Ende
+  if (shrinkingPlayer !== null && powerUp && powerUp.effect !== 'shrinkPaddle') {
+    resetPaddleSize(shrinkingPlayer);
+    shrinkingPlayer = null;
+  }
+// PowerUp Aktivierung prüfen
+if (powerUp) {
+  balls.forEach(ball => {
+    if (!powerUp.activeTimer && Math.abs(ball.x - powerUp.x) < 15 && Math.abs(ball.y - powerUp.y) < 15) {
+      activatePowerUp(powerUp.effect);
+      powerUp.activeTimer = Date.now();
+      powerUp.x = -100; // PowerUp weg vom Spielfeld
+      powerUp.y = -100;
+    }
+  });
+
+  // PowerUp Dauer abchecken und ggf. deaktivieren
+  if (powerUp.activeTimer && Date.now() - powerUp.activeTimer > powerUp.duration) {
+    deactivatePowerUp(powerUp.effect);
+    powerUp = null;
+  }
+}
+
+}
+
+function updateScore() {
+  if (score > highscore) {
+    highscore = score;
+    localStorage.setItem("pongHighscore", highscore);
+  }
+  document.getElementById("highscoreText").textContent = highscore;
+}
+
+function spawnPowerUp() {
+  let idx = Math.floor(Math.random() * powerUpTypes.length);
+  powerUp = {
+    ...powerUpTypes[idx],
+    x: 100 + Math.random() * 520,
+    y: 100 + Math.random() * 280,
+    activeTimer: null,
+  };
+
+}
+
+function activatePowerUp(effect) {
+  switch (effect) {
+    case 'speedBoost':
+      paddleSpeedP1 += 5;
+      paddleSpeedP2 += 5;
+      break;
+    case 'slowBall':
+      balls.forEach(b => {
+        b.speedX *= 0.5;
+        b.speedY *= 0.5;
+      });
+      break;
+    case 'megaPaddle':
+      paddleHeightP1 *= 1.5;
+      paddleHeightP2 *= 1.5;
+      break;
+     case 'ballSplit':
+      if (balls.length < 3) {
+        // Neuen Ball hinzufügen, der entgegengesetzt zum ersten fliegt
+        balls.push({
+          x: balls[0].x,
+          y: balls[0].y,
+          speedX: -balls[0].speedX,
+          speedY: -balls[0].speedY,
+          curve: false,
+          curveAngle: 0
+        });
+      }
+      break;
+      case 'fastBall':
+      balls.forEach(b => {
+        b.speedX *= 1.5;
+        b.speedY *= 1.5;
+      });
+      break;
+    case 'teleportPaddle':
+      p1 = Math.random() * (480 - paddleHeightP1);
+      p2 = Math.random() * (480 - paddleHeightP2);
+      break;
+    case 'ballSplit':
+      splitBall();
+      break;
+    case 'reverseControls':
+      reverseControls = true;
+      break;
+    case 'invisibleBall':
+      invisibleBallActive = true;
+      break;
+    case 'shrinkPaddle':
+      // Gegner paddle schrumpfen
+      if (balls[0].speedX > 0) {
+        paddleHeightP1 /= 2;
+        shrinkingPlayer = 1;
+      } else {
+        paddleHeightP2 /= 2;
+        shrinkingPlayer = 2;
+      }
+      break;
+    case 'curveBall':
+      balls.forEach(b => {
+        b.curve = true;
+        b.curveAngle = 0;
+      });
+      break;
+  case 'explodingBall':
+  explodingBallActive = true;
+  break;
+
+
+
+  }
+}
+
+function deactivatePowerUp(effect) {
+  switch (effect) {
+    case 'speedBoost':
+      paddleSpeedP1 -= 5;
+      paddleSpeedP2 -= 5;
+      break;
+    case 'slowBall':
+      balls.forEach(b => {
+        b.speedX *= 2;
+        b.speedY *= 2;
+      });
+      break;
+    case 'megaPaddle':
+      paddleHeightP1 /= 1.5;
+      paddleHeightP2 /= 1.5;
+      break;
+    case 'fastBall':
+      balls.forEach(b => {
+        b.speedX /= 1.5;
+        b.speedY /= 1.5;
+      });
+      break;
+    case 'reverseControls':
+      reverseControls = false;
+      break;
+    case 'invisibleBall':
+      invisibleBallActive = false;
+      break;
+    case 'shrinkPaddle':
+      resetPaddleSize(shrinkingPlayer);
+      shrinkingPlayer = null;
+      break;
+    case 'curveBall':
+      balls.forEach(b => {
+        b.curve = false;
+        b.curveAngle = 0;
+      });
+      break;
+   case 'explodingBall':
+  explodingBallActive = false;
+  break;
+
+  }
+}
+
+function resetPaddleSize(player) {
+  if (player === 1) paddleHeightP1 = 80;
+  if (player === 2) paddleHeightP2 = 80;
+}
+
+function splitBall() {
+  let newBalls = [];
+  balls.forEach(ball => {
+    newBalls.push({ ...ball, speedX: ball.speedX, speedY: ball.speedY });
+    newBalls.push({ ...ball, speedX: ball.speedX, speedY: -ball.speedY });
+  });
+  balls = newBalls;
+}
+
+function explodeBall(ball) {
+  if (balls.length > 3) return; // Max 4 Bälle
+  balls.push({ x: ball.x, y: ball.y, speedX: -ball.speedX, speedY: ball.speedY });
+  balls.push({ x: ball.x, y: ball.y, speedX: ball.speedX, speedY: -ball.speedY });
+}
+
+function getPaddleColor(player) {
+  if (player === 1) {
+    return shrinkingPlayer === 1 ? 'brown' : 'white';
+  } else {
+    return shrinkingPlayer === 2 ? 'brown' : 'white';
+  }
+}
+ function reloadPage() {
+    location.reload();
+  }
+
+</script>
+</body>
+</html>
